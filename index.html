@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Marketing Performance Insight Finder</title>
+<style>
+:root{--brown:#6b4423;--soft:#f7f1ea;--line:#e6d9cb;--ink:#3b2a1d;--mute:#8a7766}
+*{box-sizing:border-box}
+body{margin:0;background:#fff;color:var(--ink);font:15px/1.55 "Segoe UI",system-ui,sans-serif}
+header{border-bottom:1px solid var(--line);padding:28px 32px;background:var(--soft)}
+header h1{font:600 24px Georgia,serif;color:var(--brown);margin:0 0 4px}
+header p{margin:0;color:var(--mute)}
+.grid{display:grid;grid-template-columns:340px 1fr;gap:24px;padding:28px 32px;align-items:start}
+section,.card{border:1px solid var(--line);border-radius:10px;padding:20px;margin-bottom:20px}
+h2{font:600 16px Georgia,serif;color:var(--brown);margin:0 0 12px}
+textarea,select{width:100%;border:1px solid var(--line);border-radius:8px;padding:10px;font:13px ui-monospace,monospace;color:var(--ink);background:#fff;margin-bottom:10px}
+textarea{min-height:200px;resize:vertical}
+button{background:#fff;color:var(--brown);border:1.5px solid var(--brown);border-radius:8px;padding:9px 16px;font:600 14px inherit;cursor:pointer;margin:0 8px 8px 0}
+button:hover{background:var(--soft)}
+.note{font-size:13px;color:var(--mute)}
+.card h3{margin:0 0 6px;font:600 15px Georgia,serif;color:var(--brown)}
+.badge{display:inline-block;font-size:12px;border:1px solid var(--line);background:var(--soft);border-radius:20px;padding:1px 10px;margin-left:8px;color:var(--brown)}
+table{border-collapse:collapse;width:100%;font-size:13px;margin:8px 0}
+th,td{text-align:right;padding:6px 8px;border-bottom:1px solid var(--line)}
+th:first-child,td:first-child{text-align:left}
+th{color:var(--brown);font-weight:600}
+.lbl{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--brown);margin-top:10px}
+ul{margin:4px 0 0;padding-left:18px}
+.warn{background:#fbf3ea;border-left:4px solid var(--brown);padding:10px 14px;border-radius:6px;font-size:13px;margin-bottom:16px}
+@media(max-width:800px){.grid{grid-template-columns:1fr;padding:20px}header{padding:20px}}
+</style>
+</head>
+<body>
+<header>
+<h1>Marketing Performance Insight Finder</h1>
+<p>Spot notable changes in campaign or website metrics, with the numbers behind every insight.</p>
+</header>
+<div class="grid">
+<div>
+<section>
+<h2>1. Your data</h2>
+<textarea id="csv" placeholder="date,sessions,conversions,spend,revenue&#10;2026-10-01,1200,36,150,1800"></textarea>
+<button id="run">Find insights</button>
+<button id="sample">Load sample data</button>
+<p class="note">Needs a <code>date</code> column plus numeric metric columns. The latest period is compared with the one before it.</p>
+</section>
+<section>
+<h2>Comparison period</h2>
+<select id="per"><option value="7">Last 7 days vs previous 7</option><option value="14">Last 14 days vs previous 14</option><option value="half">Second half vs first half</option></select>
+</section>
+</div>
+<div id="out"><div class="card note">Load the sample data or paste a CSV to begin.</div></div>
+</div>
+<script>
+const $=id=>document.getElementById(id);
+const fmt=(n,d=1)=>Number.isFinite(n)?n.toLocaleString(undefined,{maximumFractionDigits:d}):"–";
+const sum=a=>a.reduce((x,y)=>x+y,0), avg=a=>sum(a)/a.length;
+function parse(t){
+  const rows=t.trim().split(/\r?\n/).map(r=>r.split(",").map(c=>c.trim()));
+  if(rows.length<5)throw "Add at least 5 rows of data.";
+  const head=rows.shift().map(h=>h.toLowerCase());
+  const di=head.indexOf("date"); if(di<0)throw "A “date” column is required.";
+  const cols=head.map((h,i)=>i).filter(i=>i!==di);
+  const data=rows.filter(r=>r.length===head.length).sort((a,b)=>a[di]<b[di]?-1:1);
+  const m={};
+  cols.forEach(i=>{const v=data.map(r=>parseFloat(r[i]));if(v.every(Number.isFinite))m[head[i]]=v});
+  if(!Object.keys(m).length)throw "No numeric metric columns found.";
+  // derived ratios (only when source columns exist)
+  if(m.sessions&&m.conversions)m["conv_rate_%"]=m.conversions.map((c,i)=>m.sessions[i]?c/m.sessions[i]*100:0);
+  if(m.spend&&m.conversions)m.cpa=m.spend.map((s,i)=>m.conversions[i]?s/m.conversions[i]:0);
+  if(m.spend&&m.revenue)m.roas=m.spend.map((s,i)=>s?m.revenue[i]/s:0);
+  return {dates:data.map(r=>r[di]),m};
+}
+function corr(a,b){const ma=avg(a),mb=avg(b);let n=0,da=0,db=0;a.forEach((x,i)=>{n+=(x-ma)*(b[i]-mb);da+=(x-ma)**2;db+=(b[i]-mb)**2});return da&&db?n/Math.sqrt(da*db):0}
+const RATIO=["conv_rate_%","cpa","roas"];
+const CHECKS={
+ sessions:["Break sessions down by channel and landing page to see where the change sits.","Check for tracking or tagging changes on those dates."],
+ conversions:["Check the conversion funnel step by step for a drop-off.","Confirm the conversion tag fired normally on both periods."],
+ spend:["Compare budget, bids and campaign start or stop dates across the two periods.","Check whether the change is concentrated in one campaign."],
+ revenue:["Check order volume against average order value separately.","Look for promotions, pricing changes or refunds in either period."],
+ "conv_rate_%":["Check landing page changes, page speed and traffic mix across the periods.","Segment by device and channel before drawing conclusions."],
+ cpa:["Compare cost per click and conversion rate separately to see which one moved.","Review audience and bid changes on the highest-spend campaigns."],
+ roas:["Compare revenue and spend movements separately.","Check attribution settings were the same in both periods."]
+};
+function analyse(d){
+  const n=d.dates.length;
+  let w=$("per").value==="half"?Math.floor(n/2):parseInt($("per").value);
+  if(n<w*2)w=Math.floor(n/2);
+  const out=[];
+  for(const [k,v] of Object.entries(d.m)){
+    const cur=v.slice(n-w),prev=v.slice(n-2*w,n-w);
+    const ratio=RATIO.includes(k);
+    const c=ratio?avg(cur):sum(cur),p=ratio?avg(prev):sum(prev);
+    const pct=p?(c-p)/Math.abs(p)*100:0;
+    out.push({k,c,p,pct,ratio,w,cs:d.dates[n-w],ce:d.dates[n-1],ps:d.dates[n-2*w],pe:d.dates[n-w-1],
+      cv:cur,pv:prev});
+  }
+  return out;
+}
+function render(d){
+  const items=analyse(d), w=items[0].w;
+  const notable=items.filter(i=>Math.abs(i.pct)>=10).sort((a,b)=>Math.abs(b.pct)-Math.abs(a.pct));
+  let h=`<div class="warn"><strong>Read with care.</strong> These are observed changes and possible leads. Nothing here proves a cause. Each insight shows the numbers it comes from so you can check it.</div>`;
+  h+=`<div class="card"><h2>Summary</h2>Comparing <b>${items[0].cs}</b> to <b>${items[0].ce}</b> (${w} days) with <b>${items[0].ps}</b> to <b>${items[0].pe}</b> (${w} days). ${notable.length} of ${items.length} metrics changed by 10% or more.</div>`;
+  if(!notable.length)h+=`<div class="card note">No metric moved by 10% or more. Small changes in this range can be normal day-to-day variation.</div>`;
+  notable.forEach(i=>{
+    const up=i.pct>0;
+    const agg=i.ratio?"average":"total";
+    const peers=Object.keys(d.m).filter(o=>o!==i.k).map(o=>({o,r:corr(d.m[i.k],d.m[o])})).filter(x=>Math.abs(x.r)>=0.7&&!(RATIO.includes(i.k)&&x.o===i.k)).sort((a,b)=>Math.abs(b.r)-Math.abs(a.r)).slice(0,2);
+    const drivers=peers.length?peers.map(x=>`<li><b>${x.o}</b> moved ${x.r>0?"with":"against"} ${i.k} over the whole data (r = ${fmt(x.r,2)}). This is a correlation, so it is only a lead to investigate.</li>`).join(""):"<li>No other metric shows a strong co-movement in this data (|r| below 0.7).</li>";
+    h+=`<div class="card"><h3>${i.k} ${up?"rose":"fell"} ${fmt(Math.abs(i.pct))}%<span class="badge">${agg}</span></h3>
+    <table><tr><th>Period</th><th>Dates</th><th>${agg}</th></tr>
+    <tr><td>Previous</td><td>${i.ps} → ${i.pe}</td><td>${fmt(i.p,2)}</td></tr>
+    <tr><td>Latest</td><td>${i.cs} → ${i.ce}</td><td>${fmt(i.c,2)}</td></tr>
+    <tr><td>Change</td><td></td><td>${up?"+":""}${fmt(i.c-i.p,2)} (${up?"+":""}${fmt(i.pct)}%)</td></tr></table>
+    <div class="lbl">Possible drivers to investigate</div><ul>${drivers}</ul>
+    <div class="lbl">Suggested next checks</div><ul>${(CHECKS[i.k]||["Segment this metric by channel, device and date to locate the change."]).map(c=>`<li>${c}</li>`).join("")}</ul></div>`;
+  });
+  h+=`<div class="card"><h2>All metrics</h2><table><tr><th>Metric</th><th>Previous</th><th>Latest</th><th>Change</th></tr>${items.map(i=>`<tr><td>${i.k}</td><td>${fmt(i.p,2)}</td><td>${fmt(i.c,2)}</td><td>${i.pct>0?"+":""}${fmt(i.pct)}%</td></tr>`).join("")}</table></div>`;
+  $("out").innerHTML=h;
+}
+$("run").onclick=()=>{try{render(parse($("csv").value))}catch(e){$("out").innerHTML=`<div class="card warn">${e}</div>`}};
+$("per").onchange=()=>$("run").click();
+$("sample").onclick=()=>{
+  let s="date,sessions,conversions,spend,revenue\n";
+  for(let i=0;i<28;i++){
+    const d=new Date(2026,9,1+i).toISOString().slice(0,10),late=i>=21;
+    const ses=Math.round(1200+(i%7)*40+(late?420:0)),cv=Math.round(ses*(late?0.022:0.031)),sp=late?210:150;
+    s+=`${d},${ses},${cv},${sp},${cv*48}\n`;
+  }
+  $("csv").value=s;$("run").click();
+};
+</script>
+</body>
+</html>
